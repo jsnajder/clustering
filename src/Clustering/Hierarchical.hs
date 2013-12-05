@@ -9,9 +9,11 @@
 -- | Hierarchical agglomerative clustering.
 module Clustering.Hierarchical
   (DistMeasure,
+   DistMeasureM,
    Linkage(..),
    Dendrogram,
    cluster,
+   clusterM,
    distanceCut,
    numberCut,
    clusterAt,
@@ -20,7 +22,9 @@ module Clustering.Hierarchical
    scale,
    normalize,
    clusterPartition,
-   clusterPartitionCb) where
+   clusterPartitionM,
+   clusterPartitionCb,
+   clusterPartitionCbM) where
 
 import Clustering
 
