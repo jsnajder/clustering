@@ -17,5 +17,6 @@ cabal-version:       >=1.8
 library
   exposed-modules:     Clustering, Clustering.Hierarchical
   -- other-modules:       
-  build-depends:       base ==4.6.*, containers ==0.5.*
+  build-depends:       base ==4.6.*, containers ==0.5.*,
+                       mtl ==2.1.*
   hs-source-dirs:      src
