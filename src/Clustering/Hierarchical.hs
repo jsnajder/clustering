@@ -8,7 +8,7 @@
 
 -- | Hierarchical agglomerative clustering.
 module Clustering.Hierarchical
-  (DistanceMeasure,
+  (DistMeasure,
    Linkage(..),
    Dendrogram,
    cluster,
@@ -29,6 +29,8 @@ import Data.Maybe
 import Control.Monad (liftM,zipWithM)
 import Data.Ord (comparing)
 import qualified Data.Map as M
+import Control.Applicative
+import Control.Monad.Trans
 
 type Distances    = [((Int,Int),Double)]
 type Clusters a   = M.Map Int (Int, Dendrogram a)
@@ -103,13 +105,25 @@ mergeClusters cs ((i,j),d) =
   where Just (nj,cj) = M.lookup j cs
 
 -- | Returns the initial distances list between singleton clusters.
-initDist :: Clusters a -> DistanceMeasure a -> Distances
+initDist :: Clusters a -> DistMeasure a -> Distances
 initDist cs dm = sortBy (comparing snd) dl
   where n = M.size cs
         dl = map calcDist [(i,j) | i <- [1..n-1], j <- [0..i-1]]
         calcDist ij@(i,j) = (ij,dm ei ej)
           where Just (_, Item ei) = M.lookup i cs
                 Just (_, Item ej) = M.lookup j cs
+
+-- | Monadic version of the above.
+initDistM :: Monad m => Clusters a -> DistMeasureM m a -> m Distances
+initDistM cs dm = do
+  dl <- mapM calcDist [(i,j) | i <- [1..n-1], j <- [0..i-1]]
+  return $ sortBy (comparing snd) dl
+  where n = M.size cs
+        calcDist ij@(i,j) = do
+          let Just (_, Item ei) = M.lookup i cs
+              Just (_, Item ej) = M.lookup j cs
+          d <- dm ei ej
+          return (ij,d)
 
 -- | Returns the size of a specified cluster.
 clusterSize :: Clusters a -> Int -> Int
@@ -145,11 +159,21 @@ mergeBy p (x:xs) (y:ys)
 -- | Clusters the elements of a list using a given distance measure 
 -- and linkage type. Returns a 'Dendrogram', which can be cut at 
 -- arbitrary levels using 'distanceCut' and 'numberCut'.
-cluster :: DistanceMeasure a -> Linkage -> [a] -> Dendrogram a
+cluster :: DistMeasure a -> Linkage -> [a] -> Dendrogram a
 cluster dm l xs = toDendrogram $ cluster' cs ds
   where cs = initClusters xs
         ds = initDist cs dm
         cluster' cs [] = cs
+        cluster' cs ds@(d:_) = 
+          cluster' (mergeClusters cs d) (updateDistances cs l ds) 
+
+-- | Monadic version of the above.
+clusterM :: Monad m => DistMeasureM m a -> Linkage -> [a] -> m (Dendrogram a)
+clusterM dm l xs = do
+  let cs = initClusters xs  
+  ds <- initDistM cs dm
+  return . toDendrogram $ cluster' cs ds
+  where cluster' cs [] = cs
         cluster' cs ds@(d:_) = 
           cluster' (mergeClusters cs d) (updateDistances cs l ds) 
 
@@ -160,24 +184,36 @@ cluster dm l xs = toDendrogram $ cluster' cs ds
 -- | Clusters until distances are above a specified threshold.
 -- Defined as:
 -- @ clusterAt t dm l = distanceCut t . cluster dm l @
-clusterAt :: Double -> DistanceMeasure a -> Linkage -> [a] -> [[a]]
+clusterAt :: Double -> DistMeasure a -> Linkage -> [a] -> [[a]]
 clusterAt t dm l = distanceCut t . cluster dm l
 
 -- | Clusters into a specified number of clusters (if possible).
 -- Defined as:
 -- @ clusterInto n dm l = numberCut n . cluster dm l @
-clusterInto :: Int -> DistanceMeasure a -> Linkage -> [a] -> [[a]]
+clusterInto :: Int -> DistMeasure a -> Linkage -> [a] -> [[a]]
 clusterInto n dm l = numberCut n . cluster dm l
 
 -- | Clusters pre-partitioned elements and produces a single
 -- dendrogram.
-clusterPartition :: DistanceMeasure a -> Linkage -> [[a]] -> Dendrogram a
+clusterPartition :: DistMeasure a -> Linkage -> [[a]] -> Dendrogram a
 clusterPartition dm l = concatDendrograms . map (cluster dm l)
+
+-- | Monadic version of the above.
+clusterPartitionM :: Monad m => 
+  DistMeasureM m a -> Linkage -> [[a]] -> m (Dendrogram a)
+clusterPartitionM dm l xs = concatDendrograms `liftM` mapM (clusterM dm l) xs
 
 -- | A call-back version of 'clusterPartition'. The call-back function is
 -- invoked for each partition and the argument of the
 -- function is the number of the partition being clustered.
-clusterPartitionCb :: (Int -> IO t) -> DistanceMeasure a -> Linkage -> [[a]] -> IO (Dendrogram a)
+clusterPartitionCb :: (Int -> IO t) -> DistMeasure a -> Linkage -> [[a]] -> IO (Dendrogram a)
 clusterPartitionCb cb dm l xss = concatDendrograms `liftM` zipWithM step xss [1..]
   where step xs i = cb i >> let r = cluster dm l xs in r `seq` return r
+
+-- | Monadic version of the above.
+clusterPartitionCbM :: MonadIO m => 
+  (Int -> IO t) -> DistMeasureM m a -> Linkage -> [[a]] -> m (Dendrogram a)
+clusterPartitionCbM cb dm l xss = 
+  concatDendrograms `liftM` zipWithM step xss [1..]
+  where step xs i = liftIO (cb i) >> clusterM dm l xs
 

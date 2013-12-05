@@ -5,7 +5,8 @@
 
 -------------------------------------------------------------------------------}
 
-module Clustering (DistanceMeasure) where
+module Clustering where
 
-type DistanceMeasure a = a -> a -> Double
+type DistMeasure a = a -> a -> Double
+type DistMeasureM m a = a -> a -> m Double
 
